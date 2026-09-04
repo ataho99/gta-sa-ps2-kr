@@ -1,0 +1,148 @@
+gametitle=Grand Theft Auto: San Andreas (NTSC-J) (v1.03) SLPM-65984 60FE139C
+comment=일본판 전용 치트 세트 / 미국판(SLUS-20946 CRC 399A49CA) 코드 대조 이식
+// 제작: US ELF <-> JP ELF 명령어 단위 대조로 전역 주소 확정 (2026-08-27)
+// JP CWorld::Players = 0x0070C1E0 (US 0x007095D0), sizeof(CPlayerInfo)=444(0x1BC)
+// 섹션을 통째로 지우면 해당 치트가 꺼집니다.
+
+[체력 최대 고정 (Infinite Health)]
+author=analysis: US 0x2A9AB0 CHud health bar / JP 0x2AABD0
+description=플레이어 체력을 매 프레임 100.0으로 되돌립니다. (CPlayerPed+0x580)
+patch=1,EE,6070C1E0,extended,42C80000   // *(CWorld::Players[0].m_pPed)
+patch=1,EE,00020001,extended,00000580 // +0x580 = m_fHealth <- 100.0f
+
+[아머 최대 고정 (Infinite Armour)]
+author=analysis: US 0x2A9850 CHud armour bar / JP 0x2AA970
+description=플레이어 방탄복을 매 프레임 100.0으로 되돌립니다. (CPlayerPed+0x588)
+patch=1,EE,6070C1E0,extended,42C80000
+patch=1,EE,00020001,extended,00000588 // +0x588 = m_fArmour <- 100.0f
+
+[돈 99,999,999 고정 (Max Money)]
+author=analysis: US 0x2DBA48 / JP 0x2DCD58 (m_nMoney += n)
+description=소지금을 매 프레임 $99,999,999로 고정합니다. (CPlayerInfo+0xE4)
+patch=1,EE,2070C2C4,extended,05F5E0FF // CWorld::Players[0].m_nMoney
+
+[수배 레벨 0 고정 (No Wanted Level)]
+author=analysis: US FindPlayerWanted 0x264080 / JP 0x2642C0, CWanted+0x2C
+description=수배 별을 매 프레임 0으로 만들어 경찰이 붙지 않습니다.
+patch=1,EE,6070C1E4,extended,00000000   // *(CWorld::Players[0]+0x04) = CWanted*
+patch=1,EE,00020001,extended,0000002C // +0x2C = m_nWantedLevel <- 0
+patch=1,EE,6070C1E4,extended,00000000
+patch=1,EE,00020001,extended,00000030 // +0x30 = 수배 보조 카운터 <- 0
+
+[무한 스프린트 (Infinite Sprint)]
+author=analysis: US 0x1A79D8 / JP 0x1A7678 (m_bDoesNotGetTired 체크 후 m_fSprintEnergy 감소)
+description=CPlayerInfo::m_bDoesNotGetTired 플래그를 켜서 달려도 지치지 않습니다.
+patch=1,EE,0070C358,extended,00000001 // CWorld::Players[0]+0x178 = 1
+
+[무한 탄약 (Infinite Ammo)]
+author=analysis: US 0x2A9F7C CHud ammo / JP 0x2AB09C (m_aWeapons @ CPed+0x5E0, stride 0x1C, m_nTotalAmmo +0x0C)
+description=권총~투척무기 슬롯(2~8)의 총탄 보유량을 매 프레임 9999로 채웁니다.
+patch=1,EE,6070C1E0,extended,0000270F
+patch=1,EE,00020001,extended,00000624 // slot 2 (권총) m_nTotalAmmo
+patch=1,EE,6070C1E0,extended,0000270F
+patch=1,EE,00020001,extended,00000640 // slot 3 (샷건) m_nTotalAmmo
+patch=1,EE,6070C1E0,extended,0000270F
+patch=1,EE,00020001,extended,0000065C // slot 4 (기관단총) m_nTotalAmmo
+patch=1,EE,6070C1E0,extended,0000270F
+patch=1,EE,00020001,extended,00000678 // slot 5 (돌격소총) m_nTotalAmmo
+patch=1,EE,6070C1E0,extended,0000270F
+patch=1,EE,00020001,extended,00000694 // slot 6 (저격/라이플) m_nTotalAmmo
+patch=1,EE,6070C1E0,extended,0000270F
+patch=1,EE,00020001,extended,000006B0 // slot 7 (중화기) m_nTotalAmmo
+patch=1,EE,6070C1E0,extended,0000270F
+patch=1,EE,00020001,extended,000006CC // slot 8 (투척류) m_nTotalAmmo
+
+// ===============================================================
+//  무적 확장팩 (2026-08-27 추가) — 근거: _추출/치트_무적확장.md
+//  핵심 앵커: CPlayerInfo::MakePlayerSafe  JP 0x00264D10 / US 0x00264AD0
+//    - CPhysical::m_nPhysicalFlags = 엔티티+0x40 (PC판과 동일)
+//      → 방어 플래그 6개가 전부 바이트 +0x42 안에 모여 있음
+//        0x04 방탄 / 0x08 방화 / 0x10 충돌 / 0x20 근접 / 0x40 무적 / 0x80 폭발
+//      → 0xFC 를 써 넣으면 MakePlayerSafe 와 같은 상태가 된다
+//    - CPed::m_pPlayerData(+0x4B8) == &CWorld::Players[0].m_PlayerData
+//      → 플레이어 전용 필드는 전부 고정 주소로 접근 가능 (JP 베이스 0x0070C1E4)
+// ===============================================================
+
+[완전 무적 (God Mode / 모든 대미지 면역)]
+author=analysis: JP CPlayerInfo::MakePlayerSafe 0x264D10 (lbu/sb 0x42 x6)
+description=플레이어에게 방탄+방화+폭발+충돌+근접+무적 플래그를 매 프레임 켭니다. 게임이 미션 중 쓰는 무적과 동일한 방식입니다.
+patch=1,EE,6070C1E0,extended,000000FC   // *(Players[0].m_pPed) 를 따라가서
+patch=1,EE,00000001,extended,00000042 // +0x42 (physicalFlags 바이트2) <- 0xFC
+
+[화염 면역 (Fireproof)]
+author=analysis: JP CPlayerInfo::Clear 0x2605EC (sb zero,0x17A)
+description=CPlayerInfo::m_bFireProof 를 켜서 불에 타지 않습니다. (Players+0x17A)
+patch=1,EE,0070C35A,extended,00000001
+
+[빠른 재장전 (Fast Reload)]
+author=analysis: JP CPlayerInfo::Clear 0x2605E8 (sb zero,0x179)
+description=CPlayerInfo::m_bFastReload 를 켜서 재장전 시간이 1/4 로 줄어듭니다. (Players+0x179)
+patch=1,EE,0070C359,extended,00000001
+
+[최대 체력/아머 200 상향]
+author=analysis: JP CPlayerInfo::Clear 0x2605F0/0x2605F4 (기본 체력100 / 아머200)
+description=m_nMaxHealth=200, m_nMaxArmour=200 으로 올립니다. 체력바/아머바 눈금과 회복 상한이 함께 올라갑니다.
+patch=1,EE,0070C35B,extended,000000C8 // m_nMaxHealth  <- 200 (일본판 기본 100)
+patch=1,EE,0070C35C,extended,000000C8 // m_nMaxArmour  <- 200 (일본판 기본 200)
+
+[체포돼도 무기·돈 유지 (Get Out Of Jail Free)]
+author=analysis: JP CPlayerInfo::Clear 0x2605F8 (sb zero,0x17D)
+description=경찰에 잡혀도 무기와 소지금을 빼앗기지 않습니다. (Players+0x17D)
+patch=1,EE,0070C35D,extended,00000001
+
+[병원비 무료 (Free Health Care)]
+author=analysis: JP CPlayerInfo::Clear 0x2605FC (sb zero,0x17E)
+description=병원에서 부활해도 치료비를 내지 않습니다. (Players+0x17E)
+patch=1,EE,0070C35E,extended,00000001
+
+[드라이브바이 항상 가능 (Can Do Drive-By)]
+author=analysis: JP CPlayerInfo::Clear 0x260600 (sb a3,0x17F)
+description=미션 스크립트가 꺼놓아도 차 안에서 항상 총을 쏠 수 있습니다. (Players+0x17F)
+patch=1,EE,0070C35F,extended,00000001
+
+[무한 산소 (Infinite Oxygen)]
+author=analysis: JP CPlayerPed::HandlePlayerBreath 0x1A7BE0 (m_fBreath @ playerData+0x44)
+description=잠수 게이지를 매 프레임 1000.0 으로 되돌려 물속에서 익사하지 않습니다.
+patch=1,EE,2070C228,extended,447A0000 // CWorld::Players[0].m_PlayerData.m_fBreath
+
+[탑승 차량 무적 (Vehicle God Mode)]
+author=analysis: 동일한 CPhysical 플래그를 CPed+0x5CC(m_pVehicle) 경유로 적용
+description=현재 타고 있는 차량에 방어 플래그 6개를 켭니다. 내려도 마지막 차량에 계속 적용됩니다.
+patch=1,EE,D070C1E2,extended,03100000   // 플레이어 ped 포인터가 0이면 아래 3줄 건너뜀 (안전장치)
+patch=1,EE,6070C1E0,extended,000000FC
+patch=1,EE,00000002,extended,000005CC // 1단계: CPed+0x5CC = m_pVehicle
+patch=1,EE,00000042,extended,00000000 // 2단계: CVehicle+0x42 <- 0xFC
+
+[근육·스태미너 최대 (Max Muscle / Stamina)]
+author=analysis: CStats::GetStatValue JP 0x2D3CD4, StatTypesFloat 베이스 0x00805A80
+description=근육(23)과 스태미너(22) 스탯을 1000.0(최대)으로 고정합니다. 헬스장 진행도를 덮어씁니다.
+patch=1,EE,20805ADC,extended,447A0000 // STAT_MUSCLE(23)
+patch=1,EE,20805AD8,extended,447A0000 // STAT_STAMINA(22)
+
+[폐활량 최대 (Max Lung Capacity)]
+author=analysis: CStats::GetStatModifier JP 0x2DA2C4 가 int[225] 참조, StatTypesInt 베이스 0x00805BD0
+description=폐활량 스탯(225)을 1000(최대)으로 고정해 잠수 가능 시간을 늘립니다.
+patch=1,EE,20805D74,extended,000003E8 // STAT_LUNG_CAPACITY(225)
+
+// ---------------------------------------------------------------
+// 확신도가 낮거나 부작용 우려가 있어 기본 비활성(주석) 상태인 항목
+//
+// [아머 200 고정]  일본판 m_nMaxArmour 기본값이 200이라 200까지 채울 수 있습니다.
+// [최대 체력/아머 200 상향] 과 함께 쓰세요. 위쪽 [아머 최대 고정] 섹션은 끄고 이것만 켭니다.
+// patch=1,EE,6070C1E0,extended,43480000   // 200.0f
+// patch=1,EE,00020001,extended,00000588
+//
+// [체력 200 고정]  [최대 체력/아머 200 상향] 과 세트. 위쪽 [체력 최대 고정] 은 끄세요.
+// patch=1,EE,6070C1E0,extended,43480000   // 200.0f
+// patch=1,EE,00020001,extended,00000580
+//
+// [경찰·시민 무관심 (EverybodyBackOff)]  CWanted+0x1E 의 비트 0x04.
+// MakePlayerSafe 가 켜는 플래그지만 같은 바이트의 나머지 7비트 의미가 미확정이라
+// 통짜 바이트 쓰기는 위험합니다. 실험할 사람만 켜세요.
+// patch=1,EE,6070C1E4,extended,00000004
+// patch=1,EE,00000001,extended,0000001E
+//
+// [CPed::m_fMaxHealth 상향]  CPed+0x584. HUD 는 CPlayerInfo 쪽(0x17B)을 쓰므로
+// 효과가 겹치거나 없을 수 있습니다.
+// patch=1,EE,6070C1E0,extended,43480000
+// patch=1,EE,00020001,extended,00000584

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8"><title>GTA SA PS2 세이브 정화</title>
+<style>
+body{font:15px/1.6 system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 20px;color:#222;background:#fafafa}
+h1{font-size:20px}.drop{border:2px dashed #999;border-radius:8px;padding:40px;text-align:center;background:#fff;cursor:pointer}
+.drop.on{border-color:#36c;background:#eef3ff}pre{background:#fff;border:1px solid #ddd;padding:12px;white-space:pre-wrap;min-height:60px}
+button{font-size:16px;padding:10px 24px;margin-top:12px}button:disabled{opacity:.4}
+small{color:#666}
+</style></head><body>
+<h1>GTA 산안드레아스 (PS2 일본판) 세이브 정화</h1>
+<p>검열판에서 만든 세이브를 한글패치 판에서 이어 쓰면 데이트 진입이 멈춥니다. 이 도구는 세이브 안의 플래그(<code>$131C</code>)를 고치고 체크섬을 다시 계산합니다.<br>
+<small>새 게임으로 시작한 세이브에는 필요 없습니다. PCSX2 메모리카드(<code>Mcd001.ps2</code>) 또는 폴더식 메모리카드의 세이브 파일(<code>*.b</code>) 지원. 파일은 PC 밖으로 나가지 않습니다.</small></p>
+<div class="drop" id="drop">여기에 Mcd001.ps2 를 끌어다 놓거나 클릭해서 선택<input type="file" id="file" hidden></div>
+<pre id="log">대기 중</pre>
+<button id="save" disabled>고친 파일 저장</button>
+<script>
+const SAVE_LEN=202752,OFF=0x14D6,ANCHOR_OFF=0x14EE,GAMEDIR='BISLPM-65984GTA';
+const par=[...Array(256)].map((_,i)=>i.toString(2).split('1').length-1&1);
+const cpm=[0x55,0x33,0x0F,0x00,0xAA,0xCC,0xF0];
+const cpmask=[...Array(256)].map((_,b)=>cpm.reduce((a,m,j)=>a|(par[b&m]<<j),0));
+function ecc128(s){let cp=0x77,l0=0x7f,l1=0x7f;for(let i=0;i<s.length;i++){const b=s[i];cp^=cpmask[b];if(par[b]){l0^=~i;l1^=i}}return[cp&0xff,l0&0x7f,l1&0xff]}
+function eccPage(pg){const o=new Uint8Array(16);for(let i=0;i<pg.length/128;i++)o.set(ecc128(pg.subarray(i*128,i*128+128)),i*3);return o}
+function u16(d,o){return d[o]|d[o+1]<<8}function u32(d,o){return(d[o]|d[o+1]<<8|d[o+2]<<16|d[o+3]<<24)>>>0}
+function fixSave(d){
+  if(d.length!==SAVE_LEN)return[false,'크기 불일치 '+d.length];
+  if(String.fromCharCode(d[ANCHOR_OFF],d[ANCHOR_OFF+1],d[ANCHOR_OFF+2])!=='NIL')return[false,'앵커 불일치(다른 리전/버전 세이브?)'];
+  const v=u32(d,OFF);if(v===1)return[false,'이미 정상(131C=1)'];if(v!==0)return[false,'131C 예상외 값 '+v];
+  d[OFF]=1;let s=0;for(let i=0;i<SAVE_LEN-4;i++)s=(s+d[i])>>>0;
+  d[SAVE_LEN-4]=s&255;d[SAVE_LEN-3]=s>>8&255;d[SAVE_LEN-2]=s>>16&255;d[SAVE_LEN-1]=s>>>24&255;
+  return[true,'131C 0→1, 체크섬 갱신']}
+class MC{
+  constructor(d){this.d=d;const h=d.subarray(0,0x200);
+    if(String.fromCharCode(...h.subarray(0,27))!=='Sony PS2 Memory Card Format')throw'PS2 메모리카드 아님';
+    this.pageLen=u16(h,0x28);this.ppc=u16(h,0x2a);this.cpc=u32(h,0x30);this.allocOff=u32(h,0x34);this.rootdir=u32(h,0x3c);
+    this.ifc=[];for(let i=0;i<32;i++){const x=u32(h,0x50+i*4);if(x&&x!==0xffffffff)this.ifc.push(x)}
+    const np=this.cpc*this.ppc;
+    if(d.length===np*(this.pageLen+16))this.raw=this.pageLen+16;else if(d.length===np*this.pageLen)this.raw=this.pageLen;else throw'크기 불일치';
+    this.csize=this.pageLen*this.ppc;this.fat=[];
+    for(const ifc of this.ifc){const ic=this.cluster(ifc);for(let i=0;i<ic.length;i+=4){const fc=u32(ic,i);if(fc===0xffffffff)continue;const c=this.cluster(fc);for(let j=0;j<c.length;j+=4)this.fat.push(u32(c,j))}}}
+  page(p){return this.d.subarray(p*this.raw,p*this.raw+this.pageLen)}
+  cluster(c){const o=new Uint8Array(this.csize);for(let i=0;i<this.ppc;i++)o.set(this.page(c*this.ppc+i),i*this.pageLen);return o}
+  chain(c){const out=[];while(c!==0xffffffff&&c!==0x7fffffff){out.push(c);const n=this.fat[c];if(!(n&0x80000000))break;c=(n&0x7fffffff)>>>0}return out}
+  filePages(c){const o=[];for(const cl of this.chain(c))for(let i=0;i<this.ppc;i++)o.push((this.allocOff+cl)*this.ppc+i);return o}
+  listdir(c){const o=[];for(const p of this.filePages(c)){const pg=this.page(p),mode=u16(pg,0);if(mode===0||mode===0xffff)continue;
+    let name='';for(let i=0x40;i<0x60&&pg[i];i++)name+=String.fromCharCode(pg[i]);o.push({mode,len:u32(pg,4),cl:u32(pg,0x10),name})}return o}
+  writePages(pages,data){pages.forEach((p,i)=>{const pg=new Uint8Array(this.pageLen);pg.set(data.subarray(i*this.pageLen,(i+1)*this.pageLen));
+    this.d.set(pg,p*this.raw);if(this.raw>this.pageLen)this.d.set(eccPage(pg),p*this.raw+this.pageLen)})}
+}
+function process(d,log){let changed=0;
+  if(d.length===SAVE_LEN){const[ok,msg]=fixSave(d);log(msg);changed=ok?1:0}
+  else{const mc=new MC(d);let found=false;
+    for(const e of mc.listdir(mc.rootdir)){if(!(e.mode&0x20&&e.name.startsWith(GAMEDIR)))continue;found=true;
+      for(const f of mc.listdir(e.cl)){if(!(f.mode&0x10&&f.len===SAVE_LEN))continue;
+        const pages=mc.filePages(f.cl),sd=new Uint8Array(SAVE_LEN);pages.forEach((p,i)=>{if(i*mc.pageLen<SAVE_LEN)sd.set(mc.page(p).subarray(0,Math.min(mc.pageLen,SAVE_LEN-i*mc.pageLen)),i*mc.pageLen)});
+        const[ok,msg]=fixSave(sd);log(f.name+' → '+msg);if(ok){mc.writePages(pages,sd);changed++}}}
+    if(!found)log('GTA SA(SLPM-65984) 세이브 없음')}
+  return changed}
+if(typeof document!=='undefined'){
+const drop=document.getElementById('drop'),inp=document.getElementById('file'),logEl=document.getElementById('log'),btn=document.getElementById('save');
+let out=null,outName='';const log=s=>logEl.textContent+=s+'\n';
+async function handle(file){logEl.textContent='';out=null;btn.disabled=true;
+  try{const d=new Uint8Array(await file.arrayBuffer());const n=process(d,log);
+    if(n){out=d;outName=file.name;btn.disabled=false;log('\n'+n+'개 세이브 고침. 아래 버튼으로 저장 → 원본 자리에 덮어쓰세요 (원본은 따로 백업 권장).')}else log('\n변경 없음')}
+  catch(e){log('오류: '+e)}}
+drop.onclick=()=>inp.click();inp.onchange=()=>inp.files[0]&&handle(inp.files[0]);
+drop.ondragover=e=>{e.preventDefault();drop.classList.add('on')};drop.ondragleave=()=>drop.classList.remove('on');
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove('on');e.dataTransfer.files[0]&&handle(e.dataTransfer.files[0])};
+btn.onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([out]));a.download=outName;a.click()};
+}else if(typeof module!=='undefined')module.exports={process};
+</script></body></html>
